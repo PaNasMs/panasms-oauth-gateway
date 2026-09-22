@@ -1,0 +1,16 @@
+{
+  "name": "panasms-oauth-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared OAuth redirect gateway for PaNasMs NAS Cloud Sync",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "wrangler": "^4.36.0"
+  }
+}
