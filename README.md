@@ -49,7 +49,12 @@ Console) for the NAS's OAuth client, and use the same value at token-exchange ti
 https://panasms-oauth-gateway.panasms.workers.dev/callback
 ```
 
-The Cloud Sync module surfaces this value in its admin settings.
+The core surfaces this value in Settings → External connections.
+
+After the relay stores the authorization response, the callback tab attempts to close
+automatically. The original NAS tab finishes the exchange independently. Browsers
+that block closing show a Close tab button and return instructions. The callback
+removes OAuth query parameters from browser history and never embeds the code in HTML.
 
 ## Hosting — Cloudflare Worker
 

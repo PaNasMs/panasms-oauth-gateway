@@ -80,3 +80,29 @@ test('callback without code or error shows failure page', async () => {
   assert.match(await cb.text(), /Authorization failed/);
   assert.equal(kv.store.size, 0);
 });
+
+
+test('callback closes its tab without exposing authorization data', async () => {
+  const kv = fakeKV();
+  const response = await call(`/callback?state=${STATE}&code=private-code`, kv);
+  const page = await response.text();
+  assert.ok(kv.store.has(STATE));
+  assert.ok(!page.includes('private-code'));
+  assert.ok(!page.includes(STATE));
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+  const [, nonce, script] = page.match(/<script nonce="([^"]+)">([\s\S]*?)<\/script>/);
+  assert.ok(response.headers.get('content-security-policy').includes(`'nonce-${nonce}'`));
+  let closes = 0;
+  let click;
+  const { runInNewContext } = await import('node:vm');
+  runInNewContext(script, {
+    history: { replaceState: (_, __, path) => assert.equal(path, '/callback') },
+    location: { pathname: '/callback' },
+    window: { close: () => closes++ },
+    document: { getElementById: () => ({ addEventListener: (_, action) => { click = action; } }) },
+    setTimeout: (action, delay) => { assert.equal(delay, 750); action(); },
+  });
+  assert.equal(closes, 1);
+  click();
+  assert.equal(closes, 2);
+});

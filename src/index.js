@@ -15,12 +15,21 @@ const json = (status, body) =>
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
   });
 
-const html = (body) =>
-  new Response(
+const html = (body, close = false) => {
+  const nonce = crypto.randomUUID();
+  const script = `history.replaceState(null, '', location.pathname);
+    ${close ? "const closeTab = () => window.close(); document.getElementById('close-tab').addEventListener('click', closeTab); setTimeout(closeTab, 750);" : ''}`;
+  return new Response(
     `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">` +
-      `<title>PaNasMs</title><body style="font:16px system-ui;margin:3rem auto;max-width:32rem;text-align:center;color:#222">${body}`,
-    { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
+      `<title>PaNasMs</title><body style="font:16px system-ui;margin:3rem auto;max-width:32rem;text-align:center;color:#222">${body}` +
+      `<script nonce="${nonce}">${script}</script>`,
+    { status: 200, headers: {
+      'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
+      'referrer-policy': 'no-referrer',
+      'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
+    } },
   );
+};
 
 async function callback(url, env) {
   const state = url.searchParams.get('state') || '';
@@ -40,7 +49,11 @@ async function callback(url, env) {
   }
 
   await env.STATE.put(state, JSON.stringify(value), { expirationTtl: TTL_SECONDS });
-  return html('<h1>Authorized ✓</h1><p>Return to your PaNasMs panel — this tab can be closed.</p>');
+  return html(
+    `<h1>${error ? 'Authorization declined' : 'Authorization received'}</h1>` +
+    '<p>Your NAS will finish processing the result. This tab will close automatically.</p>' +
+    '<p>If it stays open, close it and return to your PaNasMs tab.</p>' +
+    '<button id="close-tab" type="button">Close tab</button>', true);
 }
 
 async function exchange(url, env) {
