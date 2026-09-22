@@ -46,7 +46,7 @@ Register this exact redirect URI in the provider console (Google Cloud Console /
 Console) for the NAS's OAuth client, and use the same value at token-exchange time:
 
 ```
-https://<gateway-domain>/callback
+https://panasms-oauth-gateway.panasms.workers.dev/callback
 ```
 
 The Cloud Sync module surfaces this value in its admin settings.

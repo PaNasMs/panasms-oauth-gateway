@@ -3,8 +3,7 @@ main = "src/index.js"
 compatibility_date = "2026-09-01"
 workers_dev = true
 
-# Run once, then paste the printed id here:
-#   wrangler kv namespace create STATE
+# Created with: wrangler kv namespace create STATE
 [[kv_namespaces]]
 binding = "STATE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "a69ad1b2086845a3a0bde644c52009fb"
