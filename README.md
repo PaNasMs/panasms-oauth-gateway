@@ -1,79 +1,96 @@
-# panasms-oauth-gateway
+# PaNasMs OAuth gateway
 
-A tiny, stateless **OAuth redirect gateway** shared by all [PaNasMs](https://github.com/PaNasMs)
-NAS devices. It exists so a NAS can complete a one-click OAuth flow (Google Drive, Dropbox, …)
-without exposing its LAN address to the provider as a redirect URI.
+This repository holds the OAuth redirect gateway used by
+[PaNasMs](https://github.com/PaNasMs/panasms), a browser panel for managing a NAS
+on Debian-based Linux. It is a Cloudflare Worker that receives the provider's
+redirect after a user authorizes Google, GitHub or Dropbox, and passes the
+authorization code back to the NAS that started the flow. Project website:
+<https://panasms.github.io/>.
 
-## Why this exists
-
-Each NAS registers its **own** OAuth client (its own `client_id`/`client_secret`) with the
-provider. But an OAuth provider must redirect the browser to a stable, public HTTPS URL — a NAS
-sitting on `http://192.168.x.x` can't be that URL. So every NAS points its redirect URI at this
-single shared gateway, and the gateway hands the authorization `code` back to the right NAS.
-
-Providers throttle *shared client_ids*, not a redirect URI shared across *distinct* clients — so
-this stays clean at any number of NASes.
-
-## What it does (and doesn't)
-
-It **relays the authorization `code` only.** It never sees a `client_secret` or any token — the
-NAS performs the `code → token` exchange itself.
-
-Flow:
-
-1. NAS builds the provider authorize URL: its `client_id`, `redirect_uri=<gateway>/callback`, and
-   a one-time random `state`. It opens that URL in the admin's browser.
-2. Provider redirects the browser to `GET <gateway>/callback?code=…&state=…`.
-3. Gateway stores `code` under `state` in KV with a ~10-minute TTL and shows a "close this tab"
-   page.
-4. NAS polls `GET <gateway>/exchange?state=…`, receives the `code`, and the gateway deletes it
-   (one-shot).
-5. NAS exchanges the `code` for tokens against the provider using its own `client_secret`.
-
-## Endpoints
-
-| Method | Path         | Purpose                                                            |
-| ------ | ------------ | ------------------------------------------------------------------ |
-| GET    | `/callback`  | Provider redirect target. Stores `code` (or `error`) under `state`.|
-| GET    | `/exchange`  | NAS polls with `state`; returns `{code}` / `{error}` once, or 404 `{status:"pending"}`. |
-| GET    | `/healthz`   | `{ok:true}`.                                                       |
-
-`state` must match `^[A-Za-z0-9_-]{16,128}$`. Anything else → 404. Non-GET → 405.
-
-## Pointing a NAS at it
-
-Register this exact redirect URI in the provider console (Google Cloud Console / Dropbox App
-Console) for the NAS's OAuth client, and use the same value at token-exchange time:
+The public deployment is:
 
 ```
 https://panasms-oauth-gateway.panasms.workers.dev/callback
 ```
 
-The core surfaces this value in Settings → External connections.
+## Why a gateway
 
-After the relay stores the authorization response, the callback tab attempts to close
-automatically. The original NAS tab finishes the exchange independently. Browsers
-that block closing show a Close tab button and return instructions. The callback
-removes OAuth query parameters from browser history and never embeds the code in HTML.
+An OAuth provider redirects the browser to a registered HTTPS URL. A NAS on a
+home network usually has only a LAN address such as `http://192.168.1.10`, which
+providers do not accept as a redirect target, and it should not need an inbound
+public address. Every NAS therefore registers the gateway's `/callback` URL as its
+redirect URI, and the gateway hands the code back to the NAS that asked for it.
 
-## Hosting — Cloudflare Worker
+Each NAS still registers its own OAuth client with the provider and keeps its own
+client ID and secret. The gateway shares only the redirect URI.
+
+## What the gateway sees
+
+The gateway relays the authorization `code`, or the provider's `error`, and
+nothing else. It never receives a client secret, an access token or a refresh
+token. The NAS exchanges the code for tokens itself.
+
+1. The NAS builds the provider's authorization URL with its own client ID,
+   `redirect_uri=<gateway>/callback` and a random one-time `state`, and opens it
+   in the user's browser.
+2. The provider redirects the browser to `GET <gateway>/callback?code=...&state=...`.
+3. The gateway stores the code under `state` in Cloudflare KV for 10 minutes and
+   shows a page that tells the user to return to the PaNasMs tab.
+4. The NAS polls `GET <gateway>/exchange?state=...`. The first successful poll
+   returns the code and deletes it, so each code can be read once.
+5. The NAS exchanges the code for tokens with the provider, using its own client
+   secret.
+
+The callback page removes the OAuth query parameters from browser history and
+does not put the code in the HTML. It tries to close its tab automatically after
+the result is stored. If the browser blocks that, the page shows a **Close tab**
+button and tells the user to go back to the PaNasMs tab, which finishes the flow
+on its own. Responses use `Cache-Control: no-store`, `Referrer-Policy: no-referrer`
+and a nonce-based Content Security Policy.
+
+## Endpoints
+
+| Method | Path | Result |
+| --- | --- | --- |
+| GET | `/callback` | Stores `code` (up to 2048 characters) or `error` (cut to 256 characters) under `state` and shows a status page. A malformed `state`, or a request without a code or error, gets an error page and stores nothing. |
+| GET | `/exchange` | Returns `{"code": ...}` or `{"error": ...}` once, then deletes it. Returns 404 `{"status":"pending"}` while nothing is stored and 400 `{"error":"invalid_state"}` for a malformed `state`. |
+| GET | `/healthz` | Returns `{"ok":true}`. |
+
+`state` must match `^[A-Za-z0-9_-]{16,128}$`. Other paths return 404, and any
+method other than GET returns 405.
+
+## Using it from a NAS
+
+Register the exact URL above as the redirect or callback URL of the NAS's OAuth
+client at the provider, then enter the client ID and secret in the PaNasMs panel
+under **Settings**, **External connections**. The core uses the same URL when it
+exchanges the code. The website has setup guides for
+[Google](https://panasms.github.io/docs/setup/google/),
+[GitHub](https://panasms.github.io/docs/setup/github/) and
+[Dropbox](https://panasms.github.io/docs/setup/dropbox/).
+
+## Development and deployment
+
+The Worker is a single file, `src/index.js`, with its configuration in
+`wrangler.toml` and tests in `test/gateway.test.js`. The tests use Node's built-in
+test runner and do not touch the network.
 
 ```bash
-npm install
-npm test                       # router unit tests, no network
-wrangler login                 # once
-wrangler kv namespace create STATE   # paste the printed id into wrangler.toml
-npm run dev                    # local: http://127.0.0.1:8787/healthz
-npm run deploy                 # manual deploy
+npm ci
+npm test                                # unit tests, no network
+npx wrangler login                      # once
+npx wrangler kv namespace create STATE  # new deployment only; put the id in wrangler.toml
+npm run dev                             # local Worker at http://127.0.0.1:8787/healthz
+npm run deploy                          # manual deploy
 ```
 
-### CI/CD
+The [CI workflow](.github/workflows/deploy.yml) runs the tests on Node.js 22 for
+every push and pull request, and deploys with Wrangler on every push to `main`.
+It needs two repository secrets:
 
-`.github/workflows/deploy.yml` runs the tests on every push/PR and deploys on push to `main`.
-Configure two repository secrets:
-
-- `CLOUDFLARE_API_TOKEN` — token with **Workers Scripts: Edit** + **Workers KV Storage: Edit**.
-- `CLOUDFLARE_ACCOUNT_ID` — your Cloudflare account id.
+- `CLOUDFLARE_API_TOKEN`, a token with the **Workers Scripts: Edit** and
+  **Workers KV Storage: Edit** permissions.
+- `CLOUDFLARE_ACCOUNT_ID`, the Cloudflare account ID.
 
 ## License
 
