@@ -94,4 +94,4 @@ It needs two repository secrets:
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE).
+[PaNasMs Source-Available License 1.0](LICENSE).
