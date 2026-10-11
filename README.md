@@ -94,4 +94,4 @@ It needs two repository secrets:
 
 ## License
 
-[PaNasMs Source-Available License 1.0](LICENSE).
+[Sustainable Use License 1.0](LICENSE).
